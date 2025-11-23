@@ -25,9 +25,10 @@ type PlayerBoard = {
   tableRow: PlayerRow; // 22 slots: 21 + 1 empty
   submitted: boolean;
   finished: boolean;
+  preGameReady: boolean; // ✅ has clicked "Begin" in pre-game
 };
 
-type GameStatus = "lobby" | "playing" | "finished";
+type GameStatus = "lobby" | "preGame" | "playing" | "finished";
 
 type LastDiscardInfo = {
   ownerId: string | null;
@@ -86,9 +87,7 @@ const RANKS = [
 ];
 const SUITS: Suit[] = ["hearts", "diamonds", "clubs", "spades"];
 
-// 🔧 OPTION A: simple list of joker images by naming convention
-// Put joker1.png, joker2.png, ... joker20.png in /public/jokers/
-// If you add more later, just increase { length: XX } accordingly.
+// 🔧 Joker images by naming convention – joker1.png, joker2.png, ...
 const JOKER_IMAGES = Array.from(
   { length: 30 },
   (_, i) => `/jokers/joker${i + 1}.png`
@@ -224,6 +223,7 @@ const HomePage: React.FC = () => {
   const [chosenFirstPlayerId, setChosenFirstPlayerId] = useState<string | null>(
     null
   );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const savedName = window.localStorage.getItem("cardgame_player_name");
@@ -264,6 +264,7 @@ const HomePage: React.FC = () => {
           tableRow: Array(22).fill(null),
           submitted: false,
           finished: false,
+          preGameReady: false,
         };
 
         const newPlayers = { ...current.players, [data.playerId]: newPlayer };
@@ -336,6 +337,7 @@ const HomePage: React.FC = () => {
           tableRow: Array(22).fill(null),
           submitted: false,
           finished: false,
+          preGameReady: false,
         };
 
         const newState: GameState = {
@@ -374,7 +376,11 @@ const HomePage: React.FC = () => {
 
   const me: PlayerBoard | null =
     gameState && playerId ? gameState.players[playerId] : null;
-  const isMyTurn = !!gameState && !!me && gameState.activePlayerId === me.id;
+  const isMyTurn =
+    !!gameState &&
+    !!me &&
+    gameState.status === "playing" &&
+    gameState.activePlayerId === me.id;
 
   // Utility to update & broadcast state
   function updateAndBroadcast(updater: (prev: GameState) => GameState | null) {
@@ -436,9 +442,10 @@ const HomePage: React.FC = () => {
     setJoinMode("join");
   }
 
-  function handleStartGame() {
+  // ✅ NEW: Shuffle & deal (goes from lobby -> preGame)
+  function handleShuffleAndDeal() {
     if (!gameState || !me || !me.isHost) {
-      alert("Only host can start the game.");
+      alert("Only host can shuffle & deal.");
       return;
     }
     if (!channel) {
@@ -452,8 +459,6 @@ const HomePage: React.FC = () => {
         alert("You need 2 to 5 players to start.");
         return prev;
       }
-
-      const firstPlayerId = chosenFirstPlayerId || playerIds[0];
 
       const deckAll = generateDeck();
       const playersCopy: Record<string, PlayerBoard> = {};
@@ -475,6 +480,7 @@ const HomePage: React.FC = () => {
           tableRow,
           submitted: false,
           finished: false,
+          preGameReady: false,
         };
       }
 
@@ -501,8 +507,8 @@ const HomePage: React.FC = () => {
         players: playersCopy,
         deck: remainingDeck,
         discardPile,
-        status: "playing",
-        activePlayerId: firstPlayerId,
+        status: "preGame", // ✅ NEW stage
+        activePlayerId: prev.hostId, // real turn starts later
         hasDrawnThisTurn: false,
         hasDiscardedThisTurn: false,
         lastDiscardInfo: {
@@ -520,6 +526,58 @@ const HomePage: React.FC = () => {
     });
   }
 
+  // ✅ NEW: Player clicks "Begin" in pre-game
+  function handlePreGameBegin() {
+    if (!gameState || !playerId) return;
+    if (gameState.status !== "preGame") return;
+
+    updateAndBroadcast((prev) => {
+      const players = { ...prev.players };
+      const myBoard = { ...players[playerId] };
+      myBoard.preGameReady = true;
+      players[playerId] = myBoard;
+      return { ...prev, players };
+    });
+  }
+
+  // ✅ NEW: Start real game (preGame -> playing)
+  function handleStartGame() {
+    if (!gameState || !me || !me.isHost) {
+      alert("Only host can start the game.");
+      return;
+    }
+    if (gameState.status !== "preGame") {
+      alert("You must shuffle first.");
+      return;
+    }
+
+    const allReady = Object.values(gameState.players).every(
+      (p) => p.preGameReady
+    );
+    if (!allReady) {
+      alert("All players must click Begin before starting the game.");
+      return;
+    }
+
+    updateAndBroadcast((prev) => {
+      const playerIds = prev.playerOrder;
+      if (playerIds.length < 2 || playerIds.length > 5) {
+        alert("You need 2 to 5 players to start.");
+        return prev;
+      }
+
+      const firstPlayerId = chosenFirstPlayerId || playerIds[0];
+
+      return {
+        ...prev,
+        status: "playing",
+        activePlayerId: firstPlayerId,
+        hasDrawnThisTurn: false,
+        hasDiscardedThisTurn: false,
+      };
+    });
+  }
+
   function handleHostNewGame() {
     if (!gameState || !me || !me.isHost) return;
 
@@ -533,6 +591,7 @@ const HomePage: React.FC = () => {
           tableRow: Array(22).fill(null),
           submitted: false,
           finished: false,
+          preGameReady: false,
         };
       }
 
@@ -1015,6 +1074,13 @@ const HomePage: React.FC = () => {
     const fromRow = dragInfo.fromRow;
     const fromIndex = dragInfo.fromIndex;
 
+    // ❌ Restrict row 2 moves when it's not your turn (only in playing stage)
+    const involvesTable = fromRow === "table" || targetRow === "table";
+    if (gameState.status === "playing" && !isMyTurn && involvesTable) {
+      setDragInfo(null);
+      return;
+    }
+
     if (fromRow === targetRow && fromIndex === targetIndex) {
       setDragInfo(null);
       return;
@@ -1063,6 +1129,11 @@ const HomePage: React.FC = () => {
   ) {
     if (!gameState || !playerId || !isMine) return;
 
+    // If it's playing stage and not your turn, you cannot even select row 2
+    if (gameState.status === "playing" && !isMyTurn && rowName === "table") {
+      return;
+    }
+
     // If nothing selected yet, tap on a card to select it
     if (!tapSelection) {
       if (!card) return;
@@ -1081,6 +1152,13 @@ const HomePage: React.FC = () => {
     const fromIndex = tapSelection.fromIndex;
     const targetRow = rowName;
     const targetIndex = index;
+
+    // Restrict row 2 moves when it's not your turn (only in playing)
+    const involvesTable = fromRow === "table" || targetRow === "table";
+    if (gameState.status === "playing" && !isMyTurn && involvesTable) {
+      setTapSelection(null);
+      return;
+    }
 
     updateAndBroadcast((prev) => {
       const players = { ...prev.players };
@@ -1248,6 +1326,18 @@ const HomePage: React.FC = () => {
   const showLandingTopBar = joinMode === "none" && !gameState;
   const showWaitingPanel = joinMode !== "none" && !gameState;
 
+  const preGameReadyCount =
+    gameState && gameState.status === "preGame"
+      ? Object.values(gameState.players).filter((p) => p.preGameReady).length
+      : 0;
+  const preGameTotalCount = gameState
+    ? Object.keys(gameState.players).length
+    : 0;
+  const allPreGameReady =
+    gameState &&
+    gameState.status === "preGame" &&
+    preGameReadyCount === preGameTotalCount;
+
   return (
     <div className="app">
       {/* Landing controls – only before hosting/joining */}
@@ -1361,7 +1451,9 @@ const HomePage: React.FC = () => {
               <div className="players-line">
                 {gameState.playerOrder.map((pid) => {
                   const p = gameState.players[pid];
-                  const isActive = pid === gameState.activePlayerId;
+                  const isActive =
+                    gameState.status === "playing" &&
+                    pid === gameState.activePlayerId;
                   return (
                     <div key={pid} className="player-chip">
                       {isActive ? "⭐ " : ""}
@@ -1381,11 +1473,35 @@ const HomePage: React.FC = () => {
                 </div>
               )}
 
+              {gameState.status === "preGame" && (
+                <div className="turn-line">
+                  Pre-game: Ready {preGameReadyCount}/{preGameTotalCount}
+                </div>
+              )}
+
               {/* Host-only controls */}
               {me && me.isHost && (
                 <div className="host-controls">
                   {gameState.status === "lobby" && (
                     <>
+                      <button className="btn" onClick={handleShuffleAndDeal}>
+                        Shuffle &amp; deal cards
+                      </button>
+                      <span className="label small">
+                        Ask all players to join first, then shuffle.
+                      </span>
+                    </>
+                  )}
+
+                  {gameState.status === "preGame" && (
+                    <>
+                      <span className="label small">
+                        Pre-game: everyone must click Begin.
+                      </span>
+                      <div className="label small">
+                        Ready: {preGameReadyCount}/{preGameTotalCount}
+                      </div>
+
                       <span className="label small">First player:</span>
                       <select
                         value={chosenFirstPlayerId || gameState.playerOrder[0]}
@@ -1397,8 +1513,14 @@ const HomePage: React.FC = () => {
                           </option>
                         ))}
                       </select>
-                      <button className="btn" onClick={handleStartGame}>
-                        Start game
+                      <button
+                        className="btn"
+                        onClick={handleStartGame}
+                        disabled={!allPreGameReady}
+                      >
+                        {allPreGameReady
+                          ? "Start game"
+                          : "Waiting for players…"}
                       </button>
                     </>
                   )}
@@ -1601,7 +1723,29 @@ const HomePage: React.FC = () => {
       {/* My board */}
       {gameState && me && (
         <div className="panel panel-soft">
-          {/* Removed "Your board (name)" line as requested */}
+          {/* ✅ Pre-game Begin control */}
+          {gameState.status === "preGame" && (
+            <div className="board-footer" style={{ marginBottom: 8 }}>
+              {me.preGameReady ? (
+                <span className="label">
+                  You are ready. Waiting for others to click Begin…
+                </span>
+              ) : (
+                <>
+                  <span className="label">
+                    Rearrange your cards, then click Begin when ready.
+                  </span>
+                  <button
+                    className="btn small"
+                    style={{ marginLeft: 8 }}
+                    onClick={handlePreGameBegin}
+                  >
+                    Begin
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="row">
             {me.handRow.map((card, idx) => cardSlot("hand", idx, card, true))}
@@ -1649,6 +1793,11 @@ const HomePage: React.FC = () => {
                   <div className="other-player-header">
                     {p.name} {p.isHost ? "(Host)" : ""} {p.finished ? "✅" : ""}
                   </div>
+                  {gameState.status === "preGame" && (
+                    <div className="other-player-sub">
+                      {p.preGameReady ? "Ready" : "Not ready"}
+                    </div>
+                  )}
                   <div className="other-player-sub">
                     {p.submitted
                       ? "Second line (visible)"
