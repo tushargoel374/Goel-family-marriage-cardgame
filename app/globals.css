@@ -1,0 +1,560 @@
+/* ========== Global reset & base ========== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #111827;
+  background: url("/background.png") center center / cover fixed no-repeat;
+}
+
+/* Slight dark overlay to make cards readable */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Main app wrapper */
+.app {
+  min-height: 100vh;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ========== Panels / containers ========== */
+
+.panel {
+  max-width: 1200px;
+  margin: 0 auto;
+  border-radius: 16px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.panel-soft {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Top bar (landing & waiting states) */
+
+.top-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stack.center {
+  align-items: center;
+}
+
+/* Titles */
+
+.title-main {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.title-sub {
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.room-code {
+  font-size: 0.9rem;
+}
+
+.room-code-inline {
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+/* Labels & text */
+
+.label {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.label.small {
+  font-size: 0.8rem;
+}
+
+.status-line {
+  font-weight: 600;
+}
+
+/* Inputs */
+
+input {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.9);
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  min-width: 180px;
+}
+
+/* ========== Buttons ========== */
+
+.btn {
+  border-radius: 999px;
+  border: none;
+  padding: 6px 14px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: white;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: transform 0.05s ease, box-shadow 0.05s ease, background 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(37, 99, 235, 0.4);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn.secondary {
+  background: rgba(15, 23, 42, 0.1);
+  color: #111827;
+  box-shadow: none;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+}
+
+.btn.secondary:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.15);
+}
+
+.btn.danger {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  box-shadow: 0 4px 10px rgba(220, 38, 38, 0.4);
+}
+
+.btn.small {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: #111827;
+  border: 1px dashed rgba(148, 163, 184, 0.7);
+  box-shadow: none;
+}
+
+/* ========== NEW: Side-by-side layout ========== */
+
+.game-header-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+/* Left info panel */
+.game-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+}
+
+/* Host controls */
+.host-controls {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Make the reset button more compact */
+.host-reset-btn {
+  padding: 4px 10px; /* narrower pill */
+  font-size: 0.8rem;
+  align-self: flex-start; /* don’t stretch full width */
+}
+
+/* ========== Piles & layout row ========== */
+
+.pile {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 0;
+}
+
+/* Push finish controls to the far right of the row */
+.finish-stack {
+  margin-left: auto;
+}
+
+/* On small phones (where header stacks vertically), remove that push */
+@media (max-width: 640px) {
+  .finish-stack {
+    margin-left: 0;
+  }
+}
+
+/* ========== Player chips ========== */
+
+.players-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.player-chip {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  font-size: 0.8rem;
+}
+
+.turn-line {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* ========== Rows of cards ========== */
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.line-row {
+  padding: 4px 0;
+}
+
+.line-submitted {
+  outline: 2px solid #16a34a;
+  border-radius: 10px;
+}
+
+/* ========== Cards & slots ========== */
+
+.card-slot {
+  width: 70px;
+  height: 104px;
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* pile card slightly larger / centered */
+.pile-card {
+  width: 80px;
+  height: 118px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  border: 2px solid #e5e7eb;
+  background: #f9fafb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.25);
+}
+
+/* Deck card back */
+.deck-back {
+  background: #111827;
+  border-color: #111827;
+  overflow: hidden;
+  padding: 0;
+}
+
+.deck-back::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("/team.png") center center / cover no-repeat;
+}
+
+/* Trump back uses <img> so we don't override it */
+/* trump button uses trump.png instead */
+.trump-button.deck-back::before {
+  background: url("/trump.png") center center / cover no-repeat;
+}
+
+.trump-button {
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+.trump-back-image {
+  background-size: cover;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+/* Empty slots */
+.card.empty {
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.7);
+  background: rgba(255, 255, 255, 0.3);
+  font-size: 1.2rem;
+  color: rgba(148, 163, 184, 1);
+}
+
+/* Joker cards */
+.joker-card-outer {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.joker-card {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.joker-image-full {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Normal card layout */
+.card-layout {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-corner {
+  position: absolute;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.card-corner-top {
+  top: 4px;
+  left: 4px;
+}
+
+.card-corner-bottom {
+  bottom: 4px;
+  right: 4px;
+  transform: rotate(180deg);
+}
+
+.card-rank {
+  display: inline-block;
+}
+
+.card-center-suit {
+  font-size: 2.2rem;
+}
+
+/* Other players section */
+
+.section-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.other-player-block {
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.other-player-header {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.other-player-sub {
+  font-size: 0.8rem;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+/* ========== Trump popup ========== */
+
+.trump-popup {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 60px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.trump-popup-inner {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  padding: 12px 16px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.45);
+  max-width: 360px;
+  width: 90%;
+}
+
+.trump-popup-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.trump-popup-text {
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+.trump-popup-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.trump-info-small {
+  font-size: 0.8rem;
+  margin-top: 4px;
+  opacity: 0.8;
+}
+
+.card-selected {
+  outline: 2px solid #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.5);
+}
+
+/* ========== Responsive tweaks ========== */
+
+@media (max-width: 900px) {
+  .panel {
+    padding: 10px 10px;
+  }
+
+  .game-header-layout {
+    /* flex-direction: column;*/
+    gap: 10px;
+  }
+
+  .game-header-left {
+    min-width: 0;
+  }
+
+  .card-slot {
+    width: 60px;
+    height: 90px;
+  }
+
+  .pile-card {
+    width: 68px;
+    height: 102px;
+  }
+
+  .card-center-suit {
+    font-size: 1.9rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .app {
+    padding: 8px;
+  }
+
+  .title-main {
+    font-size: 1.2rem;
+  }
+
+  .card-slot {
+    width: 54px;
+    height: 82px;
+  }
+
+  .pile-card {
+    width: 60px;
+    height: 92px;
+  }
+
+  .players-line {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .player-chip {
+    width: 100%;
+  }
+}
+@media (max-width: 640px) {
+  .game-header-layout {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .game-header-left {
+    min-width: 0;
+  }
+}
