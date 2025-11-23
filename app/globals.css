@@ -65,6 +65,22 @@ body::before {
   justify-content: space-between;
 }
 
+/* New header layout helpers */
+.header-top-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+/* Let the players row use full width and wrap nicely */
+.players-line-full {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
 .stack {
   display: flex;
   flex-direction: column;
@@ -197,7 +213,9 @@ input {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 240px;
+  min-width: 230px;
+  max-width: 260px;
+  flex: 0 0 260px; /* fixed column */
 }
 
 /* Host controls */
@@ -245,13 +263,16 @@ input {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 4px;
+  max-height: 80px; /* prevent it from becoming huge vertically */
+  overflow-y: auto; /* scroll if too many names */
 }
 
 .player-chip {
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.06);
   font-size: 0.8rem;
+  white-space: nowrap; /* keep each name on one line */
 }
 
 .turn-line {
@@ -548,6 +569,7 @@ input {
     width: 100%;
   }
 }
+
 @media (max-width: 640px) {
   .game-header-layout {
     flex-direction: column;
@@ -556,5 +578,12 @@ input {
 
   .game-header-left {
     min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .players-line {
+    grid-template-columns: 1fr;
+    max-width: 220px;
   }
 }
