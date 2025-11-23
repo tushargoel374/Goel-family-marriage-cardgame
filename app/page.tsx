@@ -56,9 +56,9 @@ type GameState = {
   hasDrawnThisTurn: boolean;
   hasDiscardedThisTurn: boolean;
 
-  // Trump fields
+  // 🔹 Trump fields
   trumpCard: Card | null;
-  trumpViewers: string[];
+  trumpViewers: string[]; // players who are allowed to see trump face
   pendingTrumpRequest: TrumpRequest | null;
 };
 
@@ -86,8 +86,9 @@ const RANKS = [
 ];
 const SUITS: Suit[] = ["hearts", "diamonds", "clubs", "spades"];
 
-// Joker images – put joker1.png, joker2.png, ... in /public/jokers/
-// Increase length if you add more later.
+// 🔧 OPTION A: simple list of joker images by naming convention
+// Put joker1.png, joker2.png, ... joker20.png in /public/jokers/
+// If you add more later, just increase { length: XX } accordingly.
 const JOKER_IMAGES = Array.from(
   { length: 30 },
   (_, i) => `/jokers/joker${i + 1}.png`
@@ -108,7 +109,8 @@ function shuffle<T>(arr: T[]): T[] {
 
 function pickJokerImages(): string[] {
   const shuffled = shuffle(JOKER_IMAGES);
-  return shuffled.slice(0, 9); // any 9 random jokers each game
+  // we only need 9 joker images per game
+  return shuffled.slice(0, 9);
 }
 
 // 3 decks + 9 jokers => 165 cards
@@ -165,7 +167,7 @@ function moveWithinRow(
  * Behaviour:
  * - Remove card from fromRow at fromIndex, push a null to keep 22 slots.
  * - Insert card into toRow at toIndex, shifting cards.
- * - Then remove the **last null** from toRow.
+ * - Then remove the **last null** from toRow (so we don't accidentally drop a real card).
  */
 function moveBetweenRows(
   fromRow: PlayerRow,
@@ -216,31 +218,16 @@ const HomePage: React.FC = () => {
 
   // drag info for mouse
   const [dragInfo, setDragInfo] = useState<DragInfo>(null);
-  // tap selection for touch/click – to move cards between rows
+  // tap selection for touch (and click) – to move cards between rows
   const [tapSelection, setTapSelection] = useState<DragInfo>(null);
 
   const [chosenFirstPlayerId, setChosenFirstPlayerId] = useState<string | null>(
     null
   );
-
-  // Load / create playerId + name from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
-
-    try {
-      let storedId = window.localStorage.getItem("cardgame_player_id");
-      if (!storedId) {
-        storedId = randomId();
-        window.localStorage.setItem("cardgame_player_id", storedId);
-      }
-      setPlayerId(storedId);
-
-      const savedName = window.localStorage.getItem("cardgame_player_name");
-      if (savedName) setPlayerName(savedName);
-    } catch (err) {
-      console.warn("localStorage not available, using ephemeral ID", err);
-      setPlayerId(randomId());
-    }
+    const savedName = window.localStorage.getItem("cardgame_player_name");
+    if (savedName) setPlayerName(savedName);
   }, []);
 
   // Create Supabase realtime channel when inviteCode is set
@@ -253,7 +240,7 @@ const HomePage: React.FC = () => {
       },
     });
 
-    // 1) Listen for full state updates (everyone)
+    // 1) Listen for full state updates
     ch.on("broadcast", { event: "state" }, (payload: any) => {
       const state = payload.payload as GameState;
       setGameState(state);
@@ -265,8 +252,6 @@ const HomePage: React.FC = () => {
 
       setGameState((current) => {
         if (!current) return current;
-        // Only host handles join
-        if (current.hostId !== playerId) return current;
         if (current.players[data.playerId]) return current;
         if (current.status !== "lobby") return current;
         if (current.playerOrder.length >= 5) return current;
@@ -288,7 +273,6 @@ const HomePage: React.FC = () => {
           playerOrder: [...current.playerOrder, data.playerId],
         };
 
-        // Host broadcasts updated state
         ch.send({
           type: "broadcast",
           event: "state",
@@ -299,11 +283,10 @@ const HomePage: React.FC = () => {
       });
     });
 
-    // 3) New clients ask for latest state – only host responds
+    // 3) New clients ask for latest state
     ch.on("broadcast", { event: "request_state" }, () => {
       setGameState((current) => {
         if (!current) return current;
-        if (current.hostId !== playerId) return current; // only host replies
         ch.send({
           type: "broadcast",
           event: "state",
@@ -316,7 +299,7 @@ const HomePage: React.FC = () => {
     ch.subscribe();
     setChannel(ch);
 
-    // Ask host (whoever that is) for latest state
+    // Ask host for latest state
     ch.send({
       type: "broadcast",
       event: "request_state",
@@ -334,7 +317,6 @@ const HomePage: React.FC = () => {
     if (!channel || !playerId || !playerName) return;
 
     if (joinMode === "join") {
-      // Non-host: announce yourself to host
       channel.send({
         type: "broadcast",
         event: "join",
@@ -343,7 +325,6 @@ const HomePage: React.FC = () => {
     }
 
     if (joinMode === "host") {
-      // Host: initialize lobby state once
       setGameState((prev) => {
         if (prev) return prev;
 
@@ -904,6 +885,7 @@ const HomePage: React.FC = () => {
         (c) => c !== null
       ).length;
 
+      // Rule: cannot end turn with more than 21 cards
       if (totalCards > 21) {
         alert(
           `You cannot end your turn while holding more than 21 cards. ` +
@@ -912,6 +894,7 @@ const HomePage: React.FC = () => {
         return prev;
       }
 
+      // Optional: warning if they haven't discarded
       if (!prev.hasDiscardedThisTurn) {
         const proceed = window.confirm(
           "You have not discarded a card this turn. End turn anyway?"
@@ -937,6 +920,7 @@ const HomePage: React.FC = () => {
     }
 
     updateAndBroadcast((prev) => {
+      // Do not stack multiple *pending* requests
       if (
         prev.pendingTrumpRequest &&
         prev.pendingTrumpRequest.status === "pending"
@@ -947,6 +931,7 @@ const HomePage: React.FC = () => {
         return prev;
       }
 
+      // If this player already sees trump, no need to request
       if (prev.trumpViewers.includes(me.id)) return prev;
 
       let approverId: string;
@@ -1078,17 +1063,20 @@ const HomePage: React.FC = () => {
   ) {
     if (!gameState || !playerId || !isMine) return;
 
+    // If nothing selected yet, tap on a card to select it
     if (!tapSelection) {
       if (!card) return;
       setTapSelection({ fromRow: rowName, fromIndex: index });
       return;
     }
 
+    // If tapping the same slot again, cancel selection
     if (tapSelection.fromRow === rowName && tapSelection.fromIndex === index) {
       setTapSelection(null);
       return;
     }
 
+    // We have a selected card and tapped a target slot
     const fromRow = tapSelection.fromRow;
     const fromIndex = tapSelection.fromIndex;
     const targetRow = rowName;
@@ -1197,6 +1185,7 @@ const HomePage: React.FC = () => {
           }
         }}
         onClick={() => {
+          // tap/click-to-move between rows (touch support)
           handleCardTap(rowName, index, card, isMine);
         }}
         style={
@@ -1426,7 +1415,7 @@ const HomePage: React.FC = () => {
 
             {/* RIGHT SIDE: piles + finish controls */}
             <div className="pile">
-              {/* Trump card */}
+              {/* 🔹 Trump card */}
               <div className="stack center">
                 <div className="label">Trump</div>
                 <div className="card-slot pile-card">
@@ -1478,7 +1467,7 @@ const HomePage: React.FC = () => {
                 )}
               </div>
 
-              {/* Draw pile */}
+              {/* 🔹 Draw pile */}
               <div className="stack center">
                 <div className="label">Draw pile ({gameState.deck.length})</div>
                 <div className="card-slot pile-card">
@@ -1495,7 +1484,7 @@ const HomePage: React.FC = () => {
                 )}
               </div>
 
-              {/* Discard pile */}
+              {/* 🔹 Discard pile */}
               <div className="stack center">
                 <div className="label">
                   Discard pile ({gameState.discardPile.length})
@@ -1513,6 +1502,7 @@ const HomePage: React.FC = () => {
                     }
                   }}
                   onClick={() => {
+                    // tap-selection to discard (touch): if a card is selected, discard it
                     if (tapSelection && isMyTurn) {
                       handleDiscardCard(
                         tapSelection.fromRow,
@@ -1562,7 +1552,7 @@ const HomePage: React.FC = () => {
                 )}
               </div>
 
-              {/* Finish + undo + end turn */}
+              {/* 🔹 Finish + undo + end turn */}
               {me && (
                 <div className="stack center finish-stack">
                   <div className="label">Finish / turn controls</div>
@@ -1611,7 +1601,7 @@ const HomePage: React.FC = () => {
       {/* My board */}
       {gameState && me && (
         <div className="panel panel-soft">
-          {/* (Removed "Your board (name)" as requested) */}
+          {/* Removed "Your board (name)" line as requested */}
 
           <div className="row">
             {me.handRow.map((card, idx) => cardSlot("hand", idx, card, true))}
