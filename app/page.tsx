@@ -25,10 +25,11 @@ type PlayerBoard = {
   tableRow: PlayerRow; // 22 slots: 21 + 1 empty
   submitted: boolean;
   finished: boolean;
-  preGameReady: boolean; // ✅ has clicked "Begin" in pre-game
+  // NEW: for pre-game
+  ready: boolean; // clicked "Begin"
 };
 
-type GameStatus = "lobby" | "preGame" | "playing" | "finished";
+type GameStatus = "lobby" | "pregame" | "playing" | "finished";
 
 type LastDiscardInfo = {
   ownerId: string | null;
@@ -57,7 +58,7 @@ type GameState = {
   hasDrawnThisTurn: boolean;
   hasDiscardedThisTurn: boolean;
 
-  // 🔹 Trump fields
+  // Trump fields
   trumpCard: Card | null;
   trumpViewers: string[]; // players who are allowed to see trump face
   pendingTrumpRequest: TrumpRequest | null;
@@ -87,7 +88,7 @@ const RANKS = [
 ];
 const SUITS: Suit[] = ["hearts", "diamonds", "clubs", "spades"];
 
-// 🔧 Joker images by naming convention – joker1.png, joker2.png, ...
+// Joker images: /public/jokers/joker1.png ... joker30.png
 const JOKER_IMAGES = Array.from(
   { length: 30 },
   (_, i) => `/jokers/joker${i + 1}.png`
@@ -252,6 +253,8 @@ const HomePage: React.FC = () => {
 
       setGameState((current) => {
         if (!current) return current;
+        // only host should process join
+        if (current.hostId !== playerId) return current;
         if (current.players[data.playerId]) return current;
         if (current.status !== "lobby") return current;
         if (current.playerOrder.length >= 5) return current;
@@ -264,7 +267,7 @@ const HomePage: React.FC = () => {
           tableRow: Array(22).fill(null),
           submitted: false,
           finished: false,
-          preGameReady: false,
+          ready: false,
         };
 
         const newPlayers = { ...current.players, [data.playerId]: newPlayer };
@@ -337,7 +340,7 @@ const HomePage: React.FC = () => {
           tableRow: Array(22).fill(null),
           submitted: false,
           finished: false,
-          preGameReady: false,
+          ready: false,
         };
 
         const newState: GameState = {
@@ -400,6 +403,15 @@ const HomePage: React.FC = () => {
     });
   }
 
+  // Utility for local-only updates (no broadcast) – used for pregame Row 1 rearrange
+  function updateLocal(updater: (prev: GameState) => GameState | null) {
+    setGameState((prev) => {
+      if (!prev) return prev;
+      const updated = updater(prev);
+      return updated ?? prev;
+    });
+  }
+
   // ====== Top-level actions ======
 
   function handleCreateGame() {
@@ -442,10 +454,10 @@ const HomePage: React.FC = () => {
     setJoinMode("join");
   }
 
-  // ✅ NEW: Shuffle & deal (goes from lobby -> preGame)
-  function handleShuffleAndDeal() {
+  // NEW: host shuffles & deals → PRE-GAME
+  function handleShuffleAndPregame() {
     if (!gameState || !me || !me.isHost) {
-      alert("Only host can shuffle & deal.");
+      alert("Only host can shuffle.");
       return;
     }
     if (!channel) {
@@ -480,7 +492,7 @@ const HomePage: React.FC = () => {
           tableRow,
           submitted: false,
           finished: false,
-          preGameReady: false,
+          ready: false, // reset ready
         };
       }
 
@@ -507,8 +519,8 @@ const HomePage: React.FC = () => {
         players: playersCopy,
         deck: remainingDeck,
         discardPile,
-        status: "preGame", // ✅ NEW stage
-        activePlayerId: prev.hostId, // real turn starts later
+        status: "pregame",
+        activePlayerId: prev.hostId, // irrelevant in pregame, but set to host
         hasDrawnThisTurn: false,
         hasDiscardedThisTurn: false,
         lastDiscardInfo: {
@@ -526,40 +538,43 @@ const HomePage: React.FC = () => {
     });
   }
 
-  // ✅ NEW: Player clicks "Begin" in pre-game
-  function handlePreGameBegin() {
+  // NEW: each player clicks Begin in pregame
+  function handleBeginPregame() {
     if (!gameState || !playerId) return;
-    if (gameState.status !== "preGame") return;
+    if (gameState.status !== "pregame") return;
 
     updateAndBroadcast((prev) => {
+      if (prev.status !== "pregame") return prev;
       const players = { ...prev.players };
-      const myBoard = { ...players[playerId] };
-      myBoard.preGameReady = true;
-      players[playerId] = myBoard;
+      const myBoard = players[playerId];
+      if (!myBoard) return prev;
+      if (myBoard.ready) return prev;
+
+      players[playerId] = { ...myBoard, ready: true };
       return { ...prev, players };
     });
   }
 
-  // ✅ NEW: Start real game (preGame -> playing)
-  function handleStartGame() {
+  // NEW: host starts actual gameplay after all have clicked Begin
+  function handleStartGameFromPregame() {
     if (!gameState || !me || !me.isHost) {
       alert("Only host can start the game.");
       return;
     }
-    if (gameState.status !== "preGame") {
-      alert("You must shuffle first.");
-      return;
-    }
-
-    const allReady = Object.values(gameState.players).every(
-      (p) => p.preGameReady
-    );
-    if (!allReady) {
-      alert("All players must click Begin before starting the game.");
+    if (!channel) {
+      alert("Channel not ready yet. Try again in a moment.");
       return;
     }
 
     updateAndBroadcast((prev) => {
+      if (prev.status !== "pregame") return prev;
+
+      const allReady = prev.playerOrder.every((pid) => prev.players[pid].ready);
+      if (!allReady) {
+        alert("All players must click Begin before starting the game.");
+        return prev;
+      }
+
       const playerIds = prev.playerOrder;
       if (playerIds.length < 2 || playerIds.length > 5) {
         alert("You need 2 to 5 players to start.");
@@ -568,13 +583,15 @@ const HomePage: React.FC = () => {
 
       const firstPlayerId = chosenFirstPlayerId || playerIds[0];
 
-      return {
+      const newState: GameState = {
         ...prev,
         status: "playing",
         activePlayerId: firstPlayerId,
         hasDrawnThisTurn: false,
         hasDiscardedThisTurn: false,
       };
+
+      return newState;
     });
   }
 
@@ -591,7 +608,7 @@ const HomePage: React.FC = () => {
           tableRow: Array(22).fill(null),
           submitted: false,
           finished: false,
-          preGameReady: false,
+          ready: false,
         };
       }
 
@@ -861,6 +878,9 @@ const HomePage: React.FC = () => {
       myBoard.finished = true;
       players[playerId] = myBoard;
 
+      // After finish, allow everyone to see trump (no approval needed)
+      const allPlayerIds = Object.keys(players);
+
       return {
         ...prev,
         players,
@@ -869,6 +889,8 @@ const HomePage: React.FC = () => {
           ...prev.lastDiscardInfo,
           faceDown: true,
         },
+        trumpViewers: allPlayerIds,
+        pendingTrumpRequest: null,
       };
     });
   }
@@ -877,6 +899,7 @@ const HomePage: React.FC = () => {
     if (!gameState || !playerId) return;
 
     updateAndBroadcast((prev) => {
+      if (prev.status !== "finished") return prev;
       const info = prev.lastDiscardInfo;
       if (!info.faceDown || info.ownerId !== playerId) {
         return prev;
@@ -969,12 +992,17 @@ const HomePage: React.FC = () => {
 
   function handleRequestTrump() {
     if (!gameState || !me) return;
-    if (!isMyTurn) {
+    if (!isMyTurn && gameState.status === "playing") {
       alert("You can only request trump on your turn.");
       return;
     }
     if (!gameState.trumpCard) {
       alert("No trump card set.");
+      return;
+    }
+
+    // If game already finished, everyone can see trump; no need to request
+    if (gameState.status === "finished") {
       return;
     }
 
@@ -1074,19 +1102,17 @@ const HomePage: React.FC = () => {
     const fromRow = dragInfo.fromRow;
     const fromIndex = dragInfo.fromIndex;
 
-    // ❌ Restrict row 2 moves when it's not your turn (only in playing stage)
-    const involvesTable = fromRow === "table" || targetRow === "table";
-    if (gameState.status === "playing" && !isMyTurn && involvesTable) {
-      setDragInfo(null);
-      return;
-    }
-
     if (fromRow === targetRow && fromIndex === targetIndex) {
       setDragInfo(null);
       return;
     }
 
-    updateAndBroadcast((prev) => {
+    const isPregameHandRearrange =
+      gameState.status === "pregame" &&
+      fromRow === "hand" &&
+      targetRow === "hand";
+
+    const updater = (prev: GameState): GameState => {
       const players = { ...prev.players };
       const myBoard = { ...players[playerId] };
 
@@ -1115,7 +1141,14 @@ const HomePage: React.FC = () => {
         ...prev,
         players,
       };
-    });
+    };
+
+    if (isPregameHandRearrange) {
+      // local only – no broadcast, no flicker for others
+      updateLocal(updater);
+    } else {
+      updateAndBroadcast(updater);
+    }
 
     setDragInfo(null);
   }
@@ -1128,11 +1161,6 @@ const HomePage: React.FC = () => {
     isMine: boolean
   ) {
     if (!gameState || !playerId || !isMine) return;
-
-    // If it's playing stage and not your turn, you cannot even select row 2
-    if (gameState.status === "playing" && !isMyTurn && rowName === "table") {
-      return;
-    }
 
     // If nothing selected yet, tap on a card to select it
     if (!tapSelection) {
@@ -1153,14 +1181,12 @@ const HomePage: React.FC = () => {
     const targetRow = rowName;
     const targetIndex = index;
 
-    // Restrict row 2 moves when it's not your turn (only in playing)
-    const involvesTable = fromRow === "table" || targetRow === "table";
-    if (gameState.status === "playing" && !isMyTurn && involvesTable) {
-      setTapSelection(null);
-      return;
-    }
+    const isPregameHandRearrange =
+      gameState.status === "pregame" &&
+      fromRow === "hand" &&
+      targetRow === "hand";
 
-    updateAndBroadcast((prev) => {
+    const updater = (prev: GameState): GameState => {
       const players = { ...prev.players };
       const myBoard = { ...players[playerId] };
 
@@ -1186,7 +1212,13 @@ const HomePage: React.FC = () => {
       players[playerId] = myBoard;
 
       return { ...prev, players };
-    });
+    };
+
+    if (isPregameHandRearrange) {
+      updateLocal(updater);
+    } else {
+      updateAndBroadcast(updater);
+    }
 
     setTapSelection(null);
   }
@@ -1293,7 +1325,7 @@ const HomePage: React.FC = () => {
     );
   }
 
-  // ====== derived trump flags ======
+  // ====== derived trump & UI flags ======
 
   const iSeeTrump =
     !!gameState &&
@@ -1321,22 +1353,18 @@ const HomePage: React.FC = () => {
     (!gameState.pendingTrumpRequest ||
       gameState.pendingTrumpRequest.status !== "pending");
 
+  const trumpViewerNames =
+    gameState && gameState.trumpViewers.length > 0
+      ? gameState.trumpViewers
+          .map((pid) => gameState.players[pid]?.name || "")
+          .filter(Boolean)
+          .map((full) => full.split(" ")[0])
+      : [];
+
   // ====== JSX UI ======
 
   const showLandingTopBar = joinMode === "none" && !gameState;
   const showWaitingPanel = joinMode !== "none" && !gameState;
-
-  const preGameReadyCount =
-    gameState && gameState.status === "preGame"
-      ? Object.values(gameState.players).filter((p) => p.preGameReady).length
-      : 0;
-  const preGameTotalCount = gameState
-    ? Object.keys(gameState.players).length
-    : 0;
-  const allPreGameReady =
-    gameState &&
-    gameState.status === "preGame" &&
-    preGameReadyCount === preGameTotalCount;
 
   return (
     <div className="app">
@@ -1454,12 +1482,14 @@ const HomePage: React.FC = () => {
                   const isActive =
                     gameState.status === "playing" &&
                     pid === gameState.activePlayerId;
+                  const readyBadge =
+                    gameState.status === "pregame" && p.ready ? " ✅" : "";
                   return (
                     <div key={pid} className="player-chip">
                       {isActive ? "⭐ " : ""}
                       {p.name}
                       {p.isHost ? " (Host)" : ""}
-                      {p.finished ? " ✅" : ""}
+                      {p.finished ? " ✅" : readyBadge}
                     </div>
                   );
                 })}
@@ -1469,13 +1499,6 @@ const HomePage: React.FC = () => {
                 <div className="turn-line">
                   Turn:{" "}
                   <b>{gameState.players[gameState.activePlayerId].name}</b>
-                  {isMyTurn ? " (Your turn)" : ""}
-                </div>
-              )}
-
-              {gameState.status === "preGame" && (
-                <div className="turn-line">
-                  Pre-game: Ready {preGameReadyCount}/{preGameTotalCount}
                 </div>
               )}
 
@@ -1484,27 +1507,33 @@ const HomePage: React.FC = () => {
                 <div className="host-controls">
                   {gameState.status === "lobby" && (
                     <>
-                      <button className="btn" onClick={handleShuffleAndDeal}>
-                        Shuffle &amp; deal cards
+                      <button className="btn" onClick={handleShuffleAndPregame}>
+                        Shuffle cards
                       </button>
-                      <span className="label small">
-                        Ask all players to join first, then shuffle.
-                      </span>
                     </>
                   )}
 
-                  {gameState.status === "preGame" && (
+                  {gameState.status === "pregame" && (
                     <>
                       <span className="label small">
-                        Pre-game: everyone must click Begin.
+                        All players must click Begin.
                       </span>
                       <div className="label small">
-                        Ready: {preGameReadyCount}/{preGameTotalCount}
+                        Ready:{" "}
+                        {gameState.playerOrder
+                          .map((pid) => {
+                            const p = gameState.players[pid];
+                            if (!p.ready) return null;
+                            return p.name.split(" ")[0];
+                          })
+                          .filter(Boolean)
+                          .join(", ") || "None"}
                       </div>
-
                       <span className="label small">First player:</span>
                       <select
-                        value={chosenFirstPlayerId || gameState.playerOrder[0]}
+                        value={
+                          chosenFirstPlayerId || gameState.playerOrder[0] || ""
+                        }
                         onChange={(e) => setChosenFirstPlayerId(e.target.value)}
                       >
                         {gameState.playerOrder.map((pid) => (
@@ -1515,12 +1544,9 @@ const HomePage: React.FC = () => {
                       </select>
                       <button
                         className="btn"
-                        onClick={handleStartGame}
-                        disabled={!allPreGameReady}
+                        onClick={handleStartGameFromPregame}
                       >
-                        {allPreGameReady
-                          ? "Start game"
-                          : "Waiting for players…"}
+                        Start game
                       </button>
                     </>
                   )}
@@ -1537,7 +1563,7 @@ const HomePage: React.FC = () => {
 
             {/* RIGHT SIDE: piles + finish controls */}
             <div className="pile">
-              {/* 🔹 Trump card */}
+              {/* Trump card */}
               <div className="stack center">
                 <div className="label">Trump</div>
                 <div className="card-slot pile-card">
@@ -1562,9 +1588,16 @@ const HomePage: React.FC = () => {
                       className="card deck-back trump-button"
                       type="button"
                       onClick={() => {
+                        if (gameState.status === "finished") {
+                          // everyone already sees trump; do nothing
+                          return;
+                        }
                         if (canRequestTrump) {
                           handleRequestTrump();
-                        } else if (!isMyTurn) {
+                        } else if (
+                          !isMyTurn &&
+                          gameState.status === "playing"
+                        ) {
                           alert("You can only request trump on your turn.");
                         }
                       }}
@@ -1573,23 +1606,30 @@ const HomePage: React.FC = () => {
                     </button>
                   )}
                 </div>
-                {canRequestTrump && !iSeeTrump && (
-                  <button
-                    className="btn small"
-                    type="button"
-                    onClick={handleRequestTrump}
-                  >
-                    Request trump
-                  </button>
-                )}
-                {iSeeTrump && (
+                {canRequestTrump &&
+                  !iSeeTrump &&
+                  gameState.status !== "finished" && (
+                    <button
+                      className="btn small"
+                      type="button"
+                      onClick={handleRequestTrump}
+                    >
+                      Request trump
+                    </button>
+                  )}
+                {trumpViewerNames.length > 0 && (
                   <div className="trump-info-small">
-                    You have seen the trump.
+                    <div className="label small">Seen by:</div>
+                    <div className="stack">
+                      {trumpViewerNames.map((name, idx) => (
+                        <span key={idx}>{name}</span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* 🔹 Draw pile */}
+              {/* Draw pile */}
               <div className="stack center">
                 <div className="label">Draw pile ({gameState.deck.length})</div>
                 <div className="card-slot pile-card">
@@ -1599,14 +1639,14 @@ const HomePage: React.FC = () => {
                     <div className="card empty">0</div>
                   )}
                 </div>
-                {isMyTurn && (
+                {isMyTurn && gameState.status === "playing" && (
                   <button className="btn small" onClick={handleDrawFromDeck}>
                     Draw from deck
                   </button>
                 )}
               </div>
 
-              {/* 🔹 Discard pile */}
+              {/* Discard pile */}
               <div className="stack center">
                 <div className="label">
                   Discard pile ({gameState.discardPile.length})
@@ -1614,18 +1654,27 @@ const HomePage: React.FC = () => {
                 <div
                   className="card-slot pile-card"
                   onDragOver={(e) => {
-                    if (dragInfo && isMyTurn) e.preventDefault();
+                    if (dragInfo && isMyTurn && gameState.status === "playing")
+                      e.preventDefault();
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (dragInfo && isMyTurn) {
+                    if (
+                      dragInfo &&
+                      isMyTurn &&
+                      gameState.status === "playing"
+                    ) {
                       handleDiscardCard(dragInfo.fromRow, dragInfo.fromIndex);
                       setDragInfo(null);
                     }
                   }}
                   onClick={() => {
                     // tap-selection to discard (touch): if a card is selected, discard it
-                    if (tapSelection && isMyTurn) {
+                    if (
+                      tapSelection &&
+                      isMyTurn &&
+                      gameState.status === "playing"
+                    ) {
                       handleDiscardCard(
                         tapSelection.fromRow,
                         tapSelection.fromIndex
@@ -1667,14 +1716,14 @@ const HomePage: React.FC = () => {
                     <div className="card empty">+</div>
                   )}
                 </div>
-                {isMyTurn && (
+                {isMyTurn && gameState.status === "playing" && (
                   <button className="btn small" onClick={handleTakeFromDiscard}>
                     Take from discard
                   </button>
                 )}
               </div>
 
-              {/* 🔹 Finish + undo + end turn */}
+              {/* Finish + undo + end turn */}
               {me && (
                 <div className="stack center finish-stack">
                   <div className="label">Finish / turn controls</div>
@@ -1709,7 +1758,7 @@ const HomePage: React.FC = () => {
                   <button
                     className="btn"
                     onClick={handleEndTurn}
-                    disabled={!isMyTurn}
+                    disabled={!isMyTurn || gameState.status !== "playing"}
                   >
                     End turn
                   </button>
@@ -1723,34 +1772,12 @@ const HomePage: React.FC = () => {
       {/* My board */}
       {gameState && me && (
         <div className="panel panel-soft">
-          {/* ✅ Pre-game Begin control */}
-          {gameState.status === "preGame" && (
-            <div className="board-footer" style={{ marginBottom: 8 }}>
-              {me.preGameReady ? (
-                <span className="label">
-                  You are ready. Waiting for others to click Begin…
-                </span>
-              ) : (
-                <>
-                  <span className="label">
-                    Rearrange your cards, then click Begin when ready.
-                  </span>
-                  <button
-                    className="btn small"
-                    style={{ marginLeft: 8 }}
-                    onClick={handlePreGameBegin}
-                  >
-                    Begin
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
+          {/* First row */}
           <div className="row">
             {me.handRow.map((card, idx) => cardSlot("hand", idx, card, true))}
           </div>
 
+          {/* Second row */}
           <div className="label second-line-label">
             Second line (visible to others after you submit)
           </div>
@@ -1761,6 +1788,11 @@ const HomePage: React.FC = () => {
           </div>
 
           <div className="board-footer">
+            {gameState.status === "pregame" && !me.ready && (
+              <button className="btn" onClick={handleBeginPregame}>
+                Begin
+              </button>
+            )}
             <button
               className="btn secondary"
               onClick={handleSubmitSecondLine}
@@ -1793,11 +1825,6 @@ const HomePage: React.FC = () => {
                   <div className="other-player-header">
                     {p.name} {p.isHost ? "(Host)" : ""} {p.finished ? "✅" : ""}
                   </div>
-                  {gameState.status === "preGame" && (
-                    <div className="other-player-sub">
-                      {p.preGameReady ? "Ready" : "Not ready"}
-                    </div>
-                  )}
                   <div className="other-player-sub">
                     {p.submitted
                       ? "Second line (visible)"
